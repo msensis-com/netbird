@@ -40,6 +40,7 @@ import (
 	nbcache "github.com/netbirdio/netbird/management/server/cache"
 	nbContext "github.com/netbirdio/netbird/management/server/context"
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
+	proxyhandler "github.com/netbirdio/netbird/management/server/http/handlers/proxy"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/store"
@@ -180,7 +181,7 @@ func (s *BaseServer) APIHandler() http.Handler {
 			s.GroupsManager(), s.GeoLocationManager(), s.PermissionsManager(), s.SettingsManager(), s.ZonesManager(),
 			s.RecordsManager(), s.NetworkMapController(), s.IdpManager(), s.ServiceManager(), s.ReverseProxyDomainManager(),
 			s.AccessLogsManager(), s.ReverseProxyGRPCServer(), s.Config.ReverseProxy.TrustedHTTPProxies,
-			s.AgentNetworkManager(), nil)
+			s.AgentNetworkManager(), nil, s.proxyUserProvisioner())
 		if err != nil {
 			log.Fatalf("failed to create API handler: %v", err)
 		}
@@ -324,13 +325,23 @@ func (a *agentNetworkSynthesizerAdapter) SynthesizeServiceForDomain(ctx context.
 	return agentnetwork.SynthesizeServiceForDomain(ctx, a.store, domain)
 }
 
+// proxyUserProvisioner lets the reverse proxy SSO callback create a user on their first login, running the same
+// steps as the API auth middleware does for a user's first JWT request.
+func (s *BaseServer) proxyUserProvisioner() proxyhandler.EnsureUserFunc {
+	am := s.AccountManager()
+	return middleware.NewAuthMiddleware(s.AuthManager(), am.GetAccountIDFromUserAuth, am.SyncUserJWTGroups,
+		am.GetUserFromUserAuth, nil, nil).EnsureUserFromJWT
+}
+
 func (s *BaseServer) proxyOIDCConfig() nbgrpc.ProxyOIDCConfig {
 	return Create(s, func() nbgrpc.ProxyOIDCConfig {
 		return nbgrpc.ProxyOIDCConfig{
 			Issuer: s.Config.HttpConfig.AuthIssuer,
 			// todo: double check auth clientID value
-			ClientID:     s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
-			Scopes:       []string{"openid", "profile", "email"},
+			ClientID: s.Config.HttpConfig.AuthClientID, // Reuse dashboard client
+			// groups: SSO logins provision users and sync their JWT groups (see proxyUserProvisioner). Without the
+			// claim, the sync would treat the user as having no groups and drop their JWT-issued ones.
+			Scopes:       []string{"openid", "profile", "email", "groups"},
 			CallbackURL:  s.Config.HttpConfig.AuthCallbackURL,
 			HMACKey:      []byte(s.Config.DataStoreEncryptionKey), // Use the datastore encryption key for OIDC state HMACs, this should ensure all management instances are using the same key.
 			Audience:     s.Config.HttpConfig.AuthAudience,

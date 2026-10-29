@@ -149,7 +149,7 @@ func BuildApiBlackBoxWithDBState(t testing_tools.TB, sqlFile string, expectedPee
 	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager,
 		groupsManager, geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
-		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
+		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}
@@ -291,7 +291,7 @@ func BuildApiBlackBoxWithDBStateAndPeerChannel(t testing_tools.TB, sqlFile strin
 	apiRouter.Use(middleware.BuildMiddleware(nil, authManagerMock, am, metrics)...)
 	apiHandler, err := http2.NewAPIHandler(ctx, apiRouter, am, networksManager, resourcesManager, routersManager, groupsManager,
 		geoMock, permissionsManager, settingsManager, customZonesManager, zoneRecordsManager,
-		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil)
+		networkMapController, nil, serviceManager, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create API handler: %v", err)
 	}

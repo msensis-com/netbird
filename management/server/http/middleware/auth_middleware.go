@@ -115,11 +115,23 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 		return fmt.Errorf("error extracting token: %w", err)
 	}
 
-	ctx := r.Context()
-
-	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
+	userAuth, err := m.EnsureUserFromJWT(r.Context(), token)
 	if err != nil {
 		return err
+	}
+
+	// propagates ctx change to upstream middleware
+	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
+	return nil
+}
+
+// EnsureUserFromJWT validates a JWT and makes sure its user exists in NetBird: a first-time user is added to the
+// account, JWT group access is enforced and JWT groups are synced. It is used for API requests and for the reverse
+// proxy SSO callback, so a user's first proxy login provisions them the same way a first dashboard login does.
+func (m *AuthMiddleware) EnsureUserFromJWT(ctx context.Context, token string) (auth.UserAuth, error) {
+	userAuth, validatedToken, err := m.authManager.ValidateAndParseToken(ctx, token)
+	if err != nil {
+		return userAuth, err
 	}
 
 	// Email is now extracted in ToUserAuth (from claims or userinfo endpoint)
@@ -128,7 +140,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 	accountId, _, err := m.ensureAccount(ctx, userAuth)
 	if err != nil {
-		return err
+		return userAuth, err
 	}
 
 	if userAuth.AccountId != accountId {
@@ -138,7 +150,7 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 
 	userAuth, err = m.authManager.EnsureUserAccessByJWTGroups(ctx, userAuth, validatedToken)
 	if err != nil {
-		return err
+		return userAuth, err
 	}
 
 	// Detach the group-sync write from the request's cancellation: the dashboard
@@ -153,12 +165,10 @@ func (m *AuthMiddleware) checkJWTFromRequest(r *http.Request, authHeaderParts []
 	_, err = m.getUserFromUserAuth(ctx, userAuth)
 	if err != nil {
 		log.WithContext(ctx).Errorf("HTTP server failed to update user from user auth: %s", err)
-		return err
+		return userAuth, err
 	}
 
-	// propagates ctx change to upstream middleware
-	*r = *nbcontext.SetUserAuthInRequest(r, userAuth)
-	return nil
+	return userAuth, nil
 }
 
 // CheckPATFromRequest checks if the PAT is valid

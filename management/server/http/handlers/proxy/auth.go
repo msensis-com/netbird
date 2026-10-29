@@ -18,18 +18,24 @@ import (
 	nbgrpc "github.com/netbirdio/netbird/management/internals/shared/grpc"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/proxy/auth"
+	sharedauth "github.com/netbirdio/netbird/shared/auth"
 	"github.com/netbirdio/netbird/shared/ratelimit"
 )
+
+// EnsureUserFunc validates an access token and makes sure its user exists in NetBird, creating it on first login.
+type EnsureUserFunc func(ctx context.Context, token string) (sharedauth.UserAuth, error)
 
 // AuthCallbackHandler handles OAuth callbacks for proxy authentication.
 type AuthCallbackHandler struct {
 	proxyService   *nbgrpc.ProxyServiceServer
 	rateLimiter    *ratelimit.APIRateLimiter
 	trustedProxies []netip.Prefix
+	ensureUser     EnsureUserFunc
 }
 
-// NewAuthCallbackHandler creates a new OAuth callback handler.
-func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProxies []netip.Prefix) *AuthCallbackHandler {
+// NewAuthCallbackHandler creates a new OAuth callback handler. ensureUser may be nil, in which case only users that
+// already exist in NetBird can log in.
+func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProxies []netip.Prefix, ensureUser EnsureUserFunc) *AuthCallbackHandler {
 	rateLimiterConfig := &ratelimit.RateLimiterConfig{
 		RequestsPerMinute: 10,
 		Burst:             15,
@@ -41,6 +47,7 @@ func NewAuthCallbackHandler(proxyService *nbgrpc.ProxyServiceServer, trustedProx
 		proxyService:   proxyService,
 		rateLimiter:    ratelimit.NewAPIRateLimiter(rateLimiterConfig),
 		trustedProxies: trustedProxies,
+		ensureUser:     ensureUser,
 	}
 }
 
@@ -98,6 +105,15 @@ func (h *AuthCallbackHandler) handleCallback(w http.ResponseWriter, r *http.Requ
 		log.Error("Failed to extract user ID from OIDC token")
 		http.Error(w, "Failed to validate token", http.StatusUnauthorized)
 		return
+	}
+
+	// Provision the user on their first login, the same way their first dashboard/API request would. Without this,
+	// a user who never opened the dashboard is rejected below because they don't exist in NetBird yet. Failures are
+	// logged only: GenerateSessionToken still applies every gate and denies users that couldn't be provisioned.
+	if h.ensureUser != nil {
+		if _, err := h.ensureUser(context.WithoutCancel(r.Context()), token.AccessToken); err != nil {
+			log.WithError(err).WithField("user_id", userID).Warn("Failed to provision user from proxy SSO login")
+		}
 	}
 
 	// GenerateSessionToken applies the service's group and account-status gates,

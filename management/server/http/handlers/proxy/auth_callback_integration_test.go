@@ -228,7 +228,7 @@ func setupAuthCallbackTestWithProxyManager(t *testing.T, proxyManager nbproxy.Ma
 	proxyService.SetServiceManager(&testServiceManager{store: testStore})
 	proxyService.SetActivityManager(activitymanager.NewManager(testStore))
 
-	handler := NewAuthCallbackHandler(proxyService, nil)
+	handler := NewAuthCallbackHandler(proxyService, nil, nil)
 
 	router := mux.NewRouter()
 	handler.RegisterEndpoints(router)

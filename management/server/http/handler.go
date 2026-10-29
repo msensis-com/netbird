@@ -61,7 +61,8 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	permissionsManager permissions.Manager, settingsManager settings.Manager, zManager zones.Manager, rManager records.Manager,
 	networkMapController network_map.Controller, idpManager idpmanager.Manager, serviceManager service.Manager,
 	reverseProxyDomainManager *manager.Manager, reverseProxyAccessLogsManager accesslogs.Manager, proxyGRPCServer *nbgrpc.ProxyServiceServer,
-	trustedHTTPProxies []netip.Prefix, agentNetworkManager agentnetwork.Manager, proxyTokenRevocationGuard proxytoken.RevocationGuard) (http.Handler, error) {
+	trustedHTTPProxies []netip.Prefix, agentNetworkManager agentnetwork.Manager, proxyTokenRevocationGuard proxytoken.RevocationGuard,
+	ensureProxyUser proxy.EnsureUserFunc) (http.Handler, error) {
 
 	// Register bypass paths for unauthenticated endpoints
 	if err := bypass.AddBypassPath("/api/instance"); err != nil {
@@ -117,7 +118,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 
 	// Register OAuth callback handler for proxy authentication
 	if proxyGRPCServer != nil {
-		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies)
+		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies, ensureProxyUser)
 		oauthHandler.RegisterEndpoints(router)
 	}
 
