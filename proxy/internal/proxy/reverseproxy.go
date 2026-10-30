@@ -921,6 +921,10 @@ const (
 	// comma or any non-printable byte are dropped at stamp time so the
 	// list is unambiguously splittable by consumers.
 	headerNetBirdGroups = "X-NetBird-Groups"
+	// headerNetBirdAuthToken carries the OIDC session JWT so a backend can
+	// verify the caller with management's userinfo endpoint instead of
+	// trusting the plain identity headers.
+	headerNetBirdAuthToken = "X-NetBird-AuthToken" //nolint:gosec // a header name, not a credential
 
 	// observabilityPhaseTimeout bounds the detached response/terminal
 	// metering phase. It runs after the client connection (and its context)
@@ -949,12 +953,14 @@ func isHeaderValueSafe(v string) bool {
 }
 
 // stampNetBirdIdentity injects authenticated identity onto outbound
-// requests as X-NetBird-User and X-NetBird-Groups. Always strips any
-// client-sent values first (anti-spoof). Skips when the request didn't
-// carry CapturedData (early-path errors, internal endpoints).
+// requests as X-NetBird-User, X-NetBird-Groups and, for OIDC sessions,
+// X-NetBird-AuthToken. Always strips any client-sent values first
+// (anti-spoof). Skips when the request didn't carry CapturedData
+// (early-path errors, internal endpoints).
 func stampNetBirdIdentity(r *httputil.ProxyRequest) {
 	r.Out.Header.Del(headerNetBirdUser)
 	r.Out.Header.Del(headerNetBirdGroups)
+	r.Out.Header.Del(headerNetBirdAuthToken)
 
 	cd := CapturedDataFromContext(r.In.Context())
 	if cd == nil {
@@ -963,6 +969,7 @@ func stampNetBirdIdentity(r *httputil.ProxyRequest) {
 	if email := cd.GetUserEmail(); isHeaderValueSafe(email) {
 		r.Out.Header.Set(headerNetBirdUser, email)
 	}
+	stampNetBirdAuthToken(r, cd)
 	groupIDs := cd.GetUserGroups()
 	if len(groupIDs) == 0 {
 		return
@@ -982,4 +989,18 @@ func stampNetBirdIdentity(r *httputil.ProxyRequest) {
 	if len(labels) > 0 {
 		r.Out.Header.Set(headerNetBirdGroups, strings.Join(labels, ","))
 	}
+}
+
+// stampNetBirdAuthToken forwards the session cookie of an OIDC session as
+// X-NetBird-AuthToken. PIN and password sessions carry no user, so they get
+// none. The cookie itself is still stripped from the outbound request.
+func stampNetBirdAuthToken(r *httputil.ProxyRequest, cd *CapturedData) {
+	if cd.GetAuthMethod() != auth.MethodOIDC.String() {
+		return
+	}
+	cookie, err := r.In.Cookie(auth.SessionCookieName)
+	if err != nil || !isHeaderValueSafe(cookie.Value) {
+		return
+	}
+	r.Out.Header.Set(headerNetBirdAuthToken, cookie.Value)
 }

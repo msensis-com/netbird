@@ -201,9 +201,13 @@ func extractUserIDFromToken(ctx context.Context, provider *oidc.Provider, config
 // it walks X-Forwarded-For right-to-left skipping trusted IPs.
 // Otherwise it returns RemoteAddr directly.
 func (h *AuthCallbackHandler) resolveClientIP(r *http.Request) string {
+	return resolveClientIP(r, h.trustedProxies)
+}
+
+func resolveClientIP(r *http.Request, trustedProxies []netip.Prefix) string {
 	remoteIP := extractHost(r.RemoteAddr)
 
-	if len(h.trustedProxies) == 0 || !isTrustedProxy(remoteIP, h.trustedProxies) {
+	if len(trustedProxies) == 0 || !isTrustedProxy(remoteIP, trustedProxies) {
 		return remoteIP
 	}
 
@@ -218,7 +222,7 @@ func (h *AuthCallbackHandler) resolveClientIP(r *http.Request) string {
 		if ip == "" {
 			continue
 		}
-		if !isTrustedProxy(ip, h.trustedProxies) {
+		if !isTrustedProxy(ip, trustedProxies) {
 			return ip
 		}
 	}

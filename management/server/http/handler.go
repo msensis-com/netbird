@@ -82,6 +82,10 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	if err := bypass.AddBypassPath(types.ProxyCallbackEndpointFull); err != nil {
 		return nil, fmt.Errorf("failed to add bypass path: %w", err)
 	}
+	// Authenticated by the proxy session token it is called with, not a dashboard token
+	if err := bypass.AddBypassPath(types.ProxyUserInfoEndpointFull); err != nil {
+		return nil, fmt.Errorf("failed to add bypass path: %w", err)
+	}
 
 	instanceManager, err := nbinstance.NewManager(ctx, accountManager.GetStore(), idpManager)
 	if err != nil {
@@ -120,6 +124,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	if proxyGRPCServer != nil {
 		oauthHandler := proxy.NewAuthCallbackHandler(proxyGRPCServer, trustedHTTPProxies, ensureProxyUser)
 		oauthHandler.RegisterEndpoints(router)
+		proxy.NewUserInfoHandler(proxyGRPCServer, accountManager, trustedHTTPProxies).RegisterEndpoints(router)
 	}
 
 	return router, nil

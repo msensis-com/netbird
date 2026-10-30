@@ -1432,6 +1432,74 @@ func TestStampNetBirdIdentity_CapturedDataPresentButEmpty(t *testing.T) {
 		"X-NetBird-Groups must be stripped when CapturedData has no groups")
 }
 
+// TestStampNetBirdAuthToken covers forwarding the session JWT to the backend:
+// only an OIDC session carries a user the backend can resolve through
+// management's userinfo endpoint, and a client-sent value never survives.
+func TestStampNetBirdAuthToken(t *testing.T) {
+	const sessionJWT = "header.payload.signature"
+
+	tests := []struct {
+		name       string
+		method     string
+		cookie     string
+		spoofed    string
+		wantHeader string
+	}{
+		{name: "oidc session forwards its cookie", method: auth.MethodOIDC.String(), cookie: sessionJWT, wantHeader: sessionJWT},
+		{name: "oidc session replaces a spoofed value", method: auth.MethodOIDC.String(), cookie: sessionJWT, spoofed: "forged", wantHeader: sessionJWT},
+		{name: "oidc session without cookie strips spoofed value", method: auth.MethodOIDC.String(), spoofed: "forged"},
+		{name: "pin session gets no token", method: auth.MethodPIN.String(), cookie: sessionJWT, spoofed: "forged"},
+		{name: "password session gets no token", method: auth.MethodPassword.String(), cookie: sessionJWT},
+		{name: "unsafe cookie value is not forwarded", method: auth.MethodOIDC.String(), cookie: "bad\x01value"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, _ := url.Parse("http://backend.internal:8080")
+			p := &ReverseProxy{forwardedProto: "auto"}
+			rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+			pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+			if tt.spoofed != "" {
+				pr.In.Header.Set(headerNetBirdAuthToken, tt.spoofed)
+			}
+			if tt.cookie != "" {
+				pr.In.Header.Set("Cookie", auth.SessionCookieName+"="+tt.cookie)
+			}
+			pr.Out.Header = pr.In.Header.Clone()
+
+			cd := NewCapturedData("req-1")
+			cd.SetUserEmail("alice@netbird.io")
+			cd.SetAuthMethod(tt.method)
+			pr.In = pr.In.WithContext(WithCapturedData(pr.In.Context(), cd))
+
+			rewrite(pr)
+
+			assert.Equal(t, tt.wantHeader, pr.Out.Header.Get(headerNetBirdAuthToken),
+				"X-NetBird-AuthToken must carry only the OIDC session cookie")
+			for _, c := range pr.Out.Cookies() {
+				assert.NotEqual(t, auth.SessionCookieName, c.Name,
+					"the session cookie itself must still be stripped from the outbound request")
+			}
+		})
+	}
+}
+
+func TestStampNetBirdAuthToken_NoCapturedData_StripsOnly(t *testing.T) {
+	target, _ := url.Parse("http://backend.internal:8080")
+	p := &ReverseProxy{forwardedProto: "auto"}
+	rewrite := p.rewriteFunc(target, "", false, PathRewriteDefault, nil, nil)
+
+	pr := newProxyRequest(t, "http://example.com/", "203.0.113.50:9999")
+	pr.In.Header.Set(headerNetBirdAuthToken, "forged")
+	pr.Out.Header = pr.In.Header.Clone()
+
+	rewrite(pr)
+
+	assert.Empty(t, pr.Out.Header.Get(headerNetBirdAuthToken),
+		"client-supplied X-NetBird-AuthToken must be stripped when no captured identity is present")
+}
+
 // TestBuildRequestInput_PropagatesIdentityAndGroups locks the final wiring link
 // between auth and the middleware chain: CapturedData identity (user, groups,
 // auth method, client IP) and the target's AgentNetwork flag must land on the

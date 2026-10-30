@@ -1919,6 +1919,19 @@ func (s *ProxyServiceServer) ValidateSession(ctx context.Context, req *proto.Val
 		mintedToken = redeemed
 	}
 
+	return s.validateSessionToken(ctx, domain, sessionToken, mintedToken)
+}
+
+// ValidateSessionToken checks a session token a backend received from the
+// proxy against the same rules as ValidateSession: signature, user, account,
+// status and the service's groups. It serves management's userinfo endpoint.
+func (s *ProxyServiceServer) ValidateSessionToken(ctx context.Context, domain, sessionToken string) (*proto.ValidateSessionResponse, error) {
+	return s.validateSessionToken(ctx, domain, sessionToken, "")
+}
+
+// validateSessionToken validates sessionToken for domain. mintedToken is
+// echoed back so the proxy can install a token redeemed from a session code.
+func (s *ProxyServiceServer) validateSessionToken(ctx context.Context, domain, sessionToken, mintedToken string) (*proto.ValidateSessionResponse, error) {
 	if domain == "" || sessionToken == "" {
 		return deniedSessionResponse("missing domain or session_token"), nil
 	}
