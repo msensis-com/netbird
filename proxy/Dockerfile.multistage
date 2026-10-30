@@ -23,7 +23,7 @@ COPY version ./version
 # version, so a released image must report its real version.
 ARG VERSION=development
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X github.com/netbirdio/netbird/version.version=${VERSION}" \
+    -ldflags="-s -w -X main.Version=${VERSION} -X github.com/netbirdio/netbird/version.version=${VERSION}" \
     -o netbird-proxy ./proxy/cmd/proxy
 
 RUN echo "netbird:x:1000:1000:netbird:/var/lib/netbird:/sbin/nologin" > /tmp/passwd && \
