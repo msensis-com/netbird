@@ -19,7 +19,12 @@ COPY trustedproxy ./trustedproxy
 COPY upload-server ./upload-server
 COPY util ./util
 COPY version ./version
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o netbird-proxy ./proxy/cmd/proxy
+# Management enables session codes only for proxies at or above a minimum
+# version, so a released image must report its real version.
+ARG VERSION=development
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/netbirdio/netbird/version.version=${VERSION}" \
+    -o netbird-proxy ./proxy/cmd/proxy
 
 RUN echo "netbird:x:1000:1000:netbird:/var/lib/netbird:/sbin/nologin" > /tmp/passwd && \
     echo "netbird:x:1000:netbird" > /tmp/group && \
